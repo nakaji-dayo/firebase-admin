@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts #-}
 
 module Network.Google.Firebase
   (
@@ -15,33 +15,35 @@ module Network.Google.Firebase
   , Network.Google.Firebase.delete
   ) where
 
-import           Control.Lens              ((^.), (.~), (&), (?~), (^?))
+import           Control.Lens                       ((&), (.~), (?~), (^.),
+                                                     (^?))
+import           Control.Monad.Catch
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Class
+import           Control.Monad.Trans.Except
+import           Crypto.JWT
 import           Data.Aeson
-import           Data.ByteString.Lazy      (ByteString)
-import qualified Network.Google            as G
-import qualified Network.Google.Auth       as G
-import           Network.HTTP.Client       (newManager, throwErrorStatusCodes)
+import           Data.ByteString.Lazy               (ByteString)
+import qualified Data.ByteString.Lazy               as LBS
+import qualified Data.HashMap.Strict                as HM
+import           Data.Map.Strict                    as M
+import           Data.Scientific
+import           Data.Time.Clock
+import           Data.Time.Clock.POSIX
+import           Data.Typeable
+import qualified Network.Google                     as G
+import qualified Network.Google.Auth                as G
+import qualified Network.Google.Auth.ServiceAccount as G
+import           Network.HTTP.Client                (newManager,
+                                                     throwErrorStatusCodes)
 import           Network.HTTP.Conduit
 import           Network.HTTP.Types.Status
-import           System.IO                 (stdout)
-import Crypto.JWT
-import Data.Time.Clock
-import  Data.Time.Clock.POSIX
-import Control.Monad.Trans.Except
-import qualified Network.Google.Auth.ServiceAccount as G
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.HashMap.Strict as HM
-import Control.Monad.Catch
-import           Data.Typeable
-import Data.Scientific
-import Data.Map.Strict as M
+import           System.IO                          (stdout)
 
 type Scopes = '["https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/firebase.database"]
 data FirebaseEnv = FirebaseEnv
-  { env :: G.Env Scopes
+  { env       :: G.Env Scopes
   , projectId :: String
   }
 type Firebase = Reader FirebaseEnv
@@ -66,7 +68,7 @@ get path shallow = do
   r <- decode <$> freq req
   maybe (throwM UnexpectedResponseFormat) return r
 
-boolStr True = "true"
+boolStr True  = "true"
 boolStr False = "false"
 
 
@@ -102,7 +104,7 @@ loadCredencial path = do
 defaultEnv :: (G.Credentials Scopes, String) -> IO FirebaseEnv
 defaultEnv (cred, pid) = do
   mgr <- newManager G.tlsManagerSettings
-  lgr <- G.newLogger G.Debug stdout
+  lgr <- G.newLogger G.Error stdout
   genv <- G.newEnvWith cred lgr mgr
   return $ FirebaseEnv genv pid
 
