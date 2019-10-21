@@ -4,7 +4,8 @@
 
 module Network.Google.Firebase
   (
-    set
+    post
+  , put
   , loadCredencial
   , defaultEnv
   , runFirebase
@@ -20,25 +21,20 @@ import           Control.Lens                       ((&), (.~), (?~), (^.),
 import           Control.Monad.Catch
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
-import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Except
 import           Crypto.JWT
 import           Data.Aeson
 import           Data.ByteString.Lazy               (ByteString)
 import qualified Data.ByteString.Lazy               as LBS
 import qualified Data.HashMap.Strict                as HM
-import           Data.Map.Strict                    as M
 import           Data.Scientific
 import           Data.Time.Clock
-import           Data.Time.Clock.POSIX
 import           Data.Typeable
 import qualified Network.Google                     as G
 import qualified Network.Google.Auth                as G
 import qualified Network.Google.Auth.ServiceAccount as G
-import           Network.HTTP.Client                (newManager,
-                                                     throwErrorStatusCodes)
-import           Network.HTTP.Conduit
-import           Network.HTTP.Types.Status
+import           Network.HTTP.Client                (newManager)
+import           Network.HTTP.Conduit               hiding (path)
 import           System.IO                          (stdout)
 
 type Scopes = '["https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/firebase.database"]
@@ -46,15 +42,15 @@ data FirebaseEnv = FirebaseEnv
   { env       :: G.Env Scopes
   , projectId :: String
   }
-type Firebase = Reader FirebaseEnv
+-- type Firebase = Reader FirebaseEnv
 
 runFirebase = flip runReaderT
 
 freq :: (MonadReader FirebaseEnv m, MonadIO m, MonadCatch m) => Request -> m ByteString
 freq req = do
-  env <- asks env
-  req' <- liftIO $ G.authorize req (env ^. G.envStore) (env ^. G.envLogger) (env ^. G.envManager)
-  responseBody <$> httpLbs req' (env ^. G.envManager)
+  env' <- asks env
+  req' <- liftIO $ G.authorize req (env' ^. G.envStore) (env' ^. G.envLogger) (env' ^. G.envManager)
+  responseBody <$> httpLbs req' (env' ^. G.envManager)
 
 get :: (MonadReader FirebaseEnv m, MonadIO m, MonadCatch m) => String -> Bool -> m Object
 get path shallow = do
@@ -71,9 +67,16 @@ get path shallow = do
 boolStr True  = "true"
 boolStr False = "false"
 
+post :: (MonadReader FirebaseEnv m, MonadIO m, ToJSON a, MonadCatch m) => String -> a -> m ByteString
+post path val = do
+  pid <- asks projectId
+  let url = "https://" ++ pid ++ ".firebaseio.com/" ++ path ++ ".json"
+  initialRequest <- liftIO $ parseRequest url
+  let req = initialRequest { method = "POST", requestBody = RequestBodyLBS $ encode val }
+  freq req
 
-set :: (MonadReader FirebaseEnv m, MonadIO m, ToJSON a, MonadCatch m) => String -> a -> m ByteString
-set path val = do
+put :: (MonadReader FirebaseEnv m, MonadIO m, ToJSON a, MonadCatch m) => String -> a -> m ByteString
+put path val = do
   pid <- asks projectId
   let url = "https://" ++ pid ++ ".firebaseio.com/" ++ path ++ ".json"
   initialRequest <- liftIO $ parseRequest url
@@ -120,23 +123,23 @@ mkClaims email uid = do
     & Crypto.JWT.unregisteredClaims .~ HM.fromList [("uid", Number uid)]
 
 doJwtSign :: JWK -> ClaimsSet -> IO (Either JWTError SignedJWT)
-doJwtSign jwk claims = runExceptT $ do
-  alg <- bestJWSAlg jwk
-  let h = newJWSHeader ((), Crypto.JWT.RS256) & Crypto.JWT.typ ?~ HeaderParam () "JWT"
-  signClaims jwk h claims
+doJwtSign jwk' claims = runExceptT $ do
+  alg' <- bestJWSAlg jwk'
+  let h = newJWSHeader ((), alg') & Crypto.JWT.typ ?~ HeaderParam () "JWT"
+  signClaims jwk' h claims
 
 makeCustomToken :: (MonadReader FirebaseEnv m, MonadIO m, MonadThrow m) => Scientific -> m ByteString
 makeCustomToken uid = do
-  env <- asks env
+  env' <- asks env
   liftIO $ do
-    cred <- G.retrieveAuthFromStore $ env ^. G.envStore
+    cred <- G.retrieveAuthFromStore $ env' ^. G.envStore
     (email, privateKey) <- case G._credentials cred of
                     G.FromAccount sa -> return $ (G.getServiceEmail sa, G.getServicePrivateKey sa)
                     _ -> throwM BadCredencial
-    let jwk = fromRSA privateKey
+    let jwk' = fromRSA privateKey
     emailString <- maybe (throwM BadCredencial) return $  email ^? stringOrUri
     claims <- mkClaims emailString uid
-    jwt <- doJwtSign jwk claims >>= either (throwM . SignJWTException) return
+    jwt <- doJwtSign jwk' claims >>= either (throwM . SignJWTException) return
     return $ encodeCompact jwt
 
 data FirebaseException =
