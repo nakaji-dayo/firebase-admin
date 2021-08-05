@@ -35,13 +35,14 @@ resolver: lts-12.4
 #  - wai
 packages:
 - .
-- location:
-    git: https://github.com/lemois/gogol.git
-    commit: 09e7e22393d6b4a1f4ccc109cf90b40dbe15673a
-  extra-dep: true
+
+extra-deps:
+- git: https://github.com/lemois/gogol.git
+  commit: 08067c9fa7db7180a4f27d402e98c0c394991869
   subdirs:
   - gogol
   - core
+
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
