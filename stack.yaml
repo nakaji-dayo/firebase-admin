@@ -38,7 +38,7 @@ packages:
 
 extra-deps:
 - git: https://github.com/lemois/gogol.git
-  commit: 08067c9fa7db7180a4f27d402e98c0c394991869
+  commit: 780f59b7d6013e49c14620c647481b1647446c6f
   subdirs:
   - gogol
   - core
